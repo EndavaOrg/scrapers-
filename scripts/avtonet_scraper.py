@@ -23,6 +23,7 @@ client = AsyncIOMotorClient(MONGO_URI)
 db = client[DB_NAME]
 car_collection = db[COLLECTIONS[0]]
 moto_collection = db[COLLECTIONS[1]]
+truck_collection = db[COLLECTIONS[2]]
 
 # ---------- Configuration for Cars and Motorcycles ----------
 CAR_FIELDS = {
@@ -50,6 +51,19 @@ MOTORCYCLE_FIELDS = {
     "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").strip()) if s.get("Prevoženih") else None},
     "engine_kw": {"source": "engine", "processor": lambda e: extract_engine_info(e, is_motorcycle=True)[1]},
     "engine_hp": {"source": "engine", "processor": lambda e: extract_engine_info(e, is_motorcycle=True)[2]},
+    "state": {"source": "specs", "processor": lambda s: s.get("Starost") if s.get("Starost") else "RABLJENO"},
+    "image_url": {"source": "img_element", "processor": lambda img, _: img},
+    "link": {"source": "link_element", "processor": lambda _, link: link}
+}
+
+TRUCK_FIELDS = {
+    "make": {"source": "name_parts", "processor": lambda np: check_special_make(np)},
+    "model": {"source": "name_parts", "processor": lambda np, make: check_special_model(make, np)},
+    "price_eur": {"source": "price", "processor": lambda price_tuple: price_tuple},
+    "Year": {"source": "specs", "processor": lambda s: int(s.get("Letnik").strip()) if s.get("Letnik") else None},
+    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").strip()) if s.get("Prevoženih") else None},
+    "fuel_type": {"source": "specs", "processor": lambda s: s.get("Gorivo")},
+    "gearbox": {"source": "specs", "processor": lambda s: s.get("Menjalnik")},
     "state": {"source": "specs", "processor": lambda s: s.get("Starost") if s.get("Starost") else "RABLJENO"},
     "image_url": {"source": "img_element", "processor": lambda img, _: img},
     "link": {"source": "link_element", "processor": lambda _, link: link}
@@ -269,5 +283,7 @@ def extract_engine_info(engine_info, is_motorcycle=False):
 if __name__ == "__main__":
     car_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=0&ccmMin=0&ccmMax=99999&mocMin=0&mocMax=999999&kmMin=0&kmMax=9999999&kwMin=0&kwMax=999&motortakt=0&motorvalji=0&lokacija=0&sirina=0&dolzina=&dolzinaMIN=0&dolzinaMAX=100&nosilnostMIN=0&nosilnostMAX=999999&sedezevMIN=0&sedezevMAX=9&lezisc=&presek=0&premer=0&col=0&vijakov=0&EToznaka=0&vozilo=&airbag=&barva=&barvaint=&doseg=0&BkType=0&BkOkvir=0&BkOkvirType=0&Bk4=0&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=1000000020&EQ10=1000000000&KAT=1010000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=0&paketgarancije=&broker=0&prikazkategorije=0&kategorija=0&ONLvid=0&ONLnak=0&zaloga=10&arhiv=0&presort=3&tipsort=DESC&stran=1"
     moto_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=&ccmMin=0&ccmMax=99999&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=999&motortakt=0&motorvalji=0&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&air calendar=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1060000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=61000&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
+    truck_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=41&ccmMin=&ccmMax=&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=9999&motortakt=&motorvalji=&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&airbag=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1040000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=0&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
     asyncio.run(scrape(car_url, CAR_FIELDS, car_collection, start_page=1, end_page=1))
     # asyncio.run(scrape(moto_url, MOTORCYCLE_FIELDS, moto_collection, start_page=1, end_page=1))
+    # asyncio.run(scrape(truck_url, TRUCK_FIELDS, truck_collection, start_page=1, end_page=1))
