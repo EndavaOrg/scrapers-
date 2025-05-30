@@ -3,13 +3,13 @@ import random
 import warnings
 import os
 import re
-
 from typing import Dict, Callable, Any, Optional
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 from motor.motor_asyncio import AsyncIOMotorClient
 from cryptography.utils import CryptographyDeprecationWarning
 from dotenv import load_dotenv
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 
@@ -69,17 +69,12 @@ TRUCK_FIELDS = {
     "link": {"source": "link_element", "processor": lambda _, link: link}
 }
 
-async def scrape_page(page, fields: Dict[str, Dict[str, Any]], collection):
-    try:
-        await page.wait_for_selector("div.row.bg-white", timeout=60000)
-    except Exception as e:
-        print(f"Error waiting for results: {e}")
-        return
+async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
 
     vehicles = await page.query_selector_all("div.row.bg-white.position-relative.GO-Results-Row.GO-Shadow-B, div.row.bg-white.mb-3.pb-3.pb-sm-0.position-relative.GO-Shadow-B.GO-Results-Row")
+    vehicle_data_list = []
 
     for vehicle in vehicles:
-        # Fetch common elements
         full_name_element = await vehicle.query_selector("div.GO-Results-Naziv span")
         reg_price_element = await query_fallback(vehicle, ["div.GO-Results-Top-Price-TXT-Regular", "div.GO-Results-Price-TXT-Regular"])
         special_price_element = await query_fallback(vehicle, ["div.GO-Results-Top-Price-TXT-AkcijaCena", "div.GO-Results-Price-TXT-AkcijaCena"])
@@ -93,7 +88,6 @@ async def scrape_page(page, fields: Dict[str, Dict[str, Any]], collection):
         specs = await extract_specs_from_table(vehicle, table_element)
         engine_info = specs.get("Motor")
 
-        # Prepare data sources for field processors
         data_sources = {
             "name_parts": name_parts,
             "price": (reg_price_element, special_price_element),
@@ -103,7 +97,6 @@ async def scrape_page(page, fields: Dict[str, Dict[str, Any]], collection):
             "link_element": link_element
         }
 
-        # Build vehicle data dynamically
         vehicle_data = {}
         for field, config in fields.items():
             source = config["source"]
@@ -134,38 +127,56 @@ async def scrape_page(page, fields: Dict[str, Dict[str, Any]], collection):
                 vehicle_data[field] = None
 
         print(vehicle_data)
-        await collection.insert_one(vehicle_data)
+        vehicle_data_list.append(vehicle_data)
 
-async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, start_page: int = 1, end_page: int = 5):
+    if vehicle_data_list:
+        await collection.insert_many(vehicle_data_list, ordered=False)
+        print(f"Inserted {len(vehicle_data_list)} vehicles from page {page.url.split('=')[-1]}")
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def scrape_single_page(page_num: int, context, start_url: str, fields: Dict[str, Dict[str, Any]], collection):
+    print(f"Scraping page {page_num}...")
+    page = await context.new_page()
+    await stealth_async(page)
+
+    page_url = start_url.replace("stran=1", f"stran={page_num}")
+    try:
+        response = await page.goto(page_url, timeout=30000)
+        print(f"Page {page_num} status: {response.status}")
+        await page.wait_for_load_state("domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(1.0, 2.5))
+        await scrape_data(page, fields, collection)
+    except Exception as e:
+        print(f"Error on page {page_num}: {e}")
+        await page.screenshot(path=f"screenshot_error_page_{page_num}.png")
+    finally:
+        await page.close()
+
+def create_page_batches(start_page: int, end_page: int, batch_size: int):
+    pages = list(range(start_page, end_page + 1))
+    return [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
+
+async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, start_page: int = 1, end_page: int = 5, batch_size: int = 3):
     await collection.delete_many({})
 
-    for i in range(start_page, end_page + 1):
-        print(f"\nScraping page {i}...")
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=False, args=["--disable-blink-features=AutomationControlled"])
+    async with async_playwright() as p:
+        page_batches = create_page_batches(start_page, end_page, batch_size)
+        print(f"Processing {len(page_batches)} batches of up to {batch_size} pages each.")
+
+        for batch in page_batches:
+            print(f"\nStarting batch: pages {batch[0]} to {batch[-1]}")
+            browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 viewport={"width": 1280, "height": 720},
                 locale="en-US"
             )
-
-            page = await context.new_page()
-            await stealth_async(page)
-
-            page_url = start_url.replace("stran=1", f"stran={i}")
-            try:
-                await page.goto(page_url, timeout=60000)
-                await page.wait_for_load_state("networkidle")
-                await asyncio.sleep(random.uniform(3, 6))
-                await scrape_page(page, fields, collection)
-            except Exception as e:
-                print(f"Error on page {i}: {e}")
-                await page.screenshot(path=f"screenshot_error_page_{i}.png")
-                await browser.close()
-                continue
-
+            tasks = [scrape_single_page(page_num, context, start_url, fields, collection) for page_num in batch]
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await context.close()
             await browser.close()
-    
+            print(f"Closed browser for batch: pages {batch[0]} to {batch[-1]}")
+
     print(f"\nScraping completed.")
 
 # ---------- Helper Functions ----------
@@ -238,44 +249,24 @@ async def extract_price(reg_price_element, special_price_element):
     return None
 
 def extract_engine_info(engine_info, is_motorcycle=False):
-    engine_ccm = None
-    engine_kw = None
-    engine_hp = None
-    
     if not engine_info:
-        return engine_ccm, engine_kw, engine_hp
-    
+        return None, None, None
     engine_info = ' '.join(engine_info.strip().split()).lower()
-    
+    engine_ccm, engine_kw, engine_hp = None, None, None
     if is_motorcycle:
-        kw_match = re.search(r'(\d+)\s*kw\s*\((\d+)\s*km\)', engine_info)
-        if kw_match:
-            engine_kw = int(kw_match.group(1))
-            engine_hp = int(kw_match.group(2))
+        match = re.search(r'(\d+)\s*kw\s*\((\d+)\s*km\)', engine_info)
+        if match:
+            engine_kw, engine_hp = int(match.group(1)), int(match.group(2))
         else:
-            kw_only = re.search(r'(\d+)\s*kw', engine_info)
-            hp_only = re.search(r'(\d+)\s*km', engine_info)
-            if kw_only:
-                engine_kw = int(kw_only.group(1))
-            if hp_only:
-                engine_hp = int(hp_only.group(1))
+            engine_kw = next((int(m.group(1)) for m in [re.search(r'(\d+)\s*kw', engine_info)] if m), None)
+            engine_hp = next((int(m.group(1)) for m in [re.search(r'(\d+)\s*km', engine_info)] if m), None)
     else:
-        parts = [part.strip() for part in engine_info.split(',')]
-        
+        parts = engine_info.split(',')
         if parts:
-            ccm_match = re.search(r'(\d+)\s*ccm', parts[0])
-            if ccm_match:
-                engine_ccm = int(ccm_match.group(1))
-        
+            engine_ccm = next((int(m.group(1)) for m in [re.search(r'(\d+)\s*ccm', parts[0])] if m), None)
         kw_hp_part = parts[1] if len(parts) > 1 else engine_info
-        kw_match = re.search(r'(\d+)\s*kw', kw_hp_part)
-        hp_match = re.search(r'(\d+)\s*km', kw_hp_part)
-        
-        if kw_match:
-            engine_kw = int(kw_match.group(1))
-        if hp_match:
-            engine_hp = int(hp_match.group(1))
-    
+        engine_kw = next((int(m.group(1)) for m in [re.search(r'(\d+)\s*kw', kw_hp_part)] if m), None)
+        engine_hp = next((int(m.group(1)) for m in [re.search(r'(\d+)\s*km', kw_hp_part)] if m), None)
     return engine_ccm, engine_kw, engine_hp
 
 
@@ -284,6 +275,5 @@ if __name__ == "__main__":
     car_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=0&ccmMin=0&ccmMax=99999&mocMin=0&mocMax=999999&kmMin=0&kmMax=9999999&kwMin=0&kwMax=999&motortakt=0&motorvalji=0&lokacija=0&sirina=0&dolzina=&dolzinaMIN=0&dolzinaMAX=100&nosilnostMIN=0&nosilnostMAX=999999&sedezevMIN=0&sedezevMAX=9&lezisc=&presek=0&premer=0&col=0&vijakov=0&EToznaka=0&vozilo=&airbag=&barva=&barvaint=&doseg=0&BkType=0&BkOkvir=0&BkOkvirType=0&Bk4=0&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=1000000020&EQ10=1000000000&KAT=1010000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=0&paketgarancije=&broker=0&prikazkategorije=0&kategorija=0&ONLvid=0&ONLnak=0&zaloga=10&arhiv=0&presort=3&tipsort=DESC&stran=1"
     moto_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=&ccmMin=0&ccmMax=99999&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=999&motortakt=0&motorvalji=0&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&air calendar=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1060000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=61000&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
     truck_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=41&ccmMin=&ccmMax=&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=9999&motortakt=&motorvalji=&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&airbag=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1040000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=0&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
-    asyncio.run(scrape(car_url, CAR_FIELDS, car_collection, start_page=1, end_page=1))
-    # asyncio.run(scrape(moto_url, MOTORCYCLE_FIELDS, moto_collection, start_page=1, end_page=1))
-    # asyncio.run(scrape(truck_url, TRUCK_FIELDS, truck_collection, start_page=1, end_page=1))
+
+    asyncio.run(scrape(car_url, CAR_FIELDS, car_collection, start_page=1, end_page=9, batch_size=3))
