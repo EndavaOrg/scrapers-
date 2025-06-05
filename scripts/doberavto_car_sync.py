@@ -10,7 +10,7 @@ if not MONGO_URI:
     raise Exception("❌ MONGO_URI not found in environment variables")
 
 # API endpoint
-url = "https://www.doberavto.si/internal-api/v1/marketplace/search?results=10&from=0&includeSold=true&hiddenVin=false"
+url = "https://www.doberavto.si/internal-api/v1/marketplace/search?results=5000&from=0&includeSold=true&hiddenVin=false"
 
 # Helper functions
 def translate_transmission(t):
