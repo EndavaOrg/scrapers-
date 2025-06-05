@@ -27,4 +27,4 @@ jobs:
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
         run: |
-          python scripts/doberavto_car.py
+          python scripts/doberavto_car_sync.py
