@@ -96,6 +96,8 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
         name_parts = full_name.strip().split()
         specs_values = await extract_specs_from_spans(specs_elements)
         misc_text = await misc_element.inner_text() if misc_element else ""
+        if misc_text and "drugo" in misc_text.lower():
+            continue
         make_value = check_special_make(name_parts) if name_parts else None
 
         data_sources = {
@@ -136,7 +138,7 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
         if any(vehicle_data.values()):  # Only add if there's some valid data
             vehicle_data_list.append(vehicle_data)
 
-        # print(vehicle_data)
+        print(vehicle_data)
 
     if vehicle_data_list:
         try:
@@ -147,6 +149,7 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
 
     return vehicle_data_list
 
+# ---------- Helper Functions ----------
 async def extract_specs_from_spans(specs_elements):
     specs_values = []
     for element in specs_elements:
@@ -158,13 +161,13 @@ async def extract_price(price_element):
     if price_element:
         try:
             price_value = await price_element.inner_text()
-            # Replace non-breaking space (\xa0), €, and other unwanted characters
             price_value = price_value.replace("\xa0", "").replace("€", "").replace(".", "").replace(",", "").strip()
             return int(price_value) if price_value.isdigit() else None
         except Exception as e:
             print(f"Error extracting price: {e}")
     return None
 
+# ---------- Main ----------
 if __name__ == "__main__":
     car_url = "https://autobid.de/sl/rezultati-iskanja?e367=1&sortingType=auctionStartDate-DESCENDING&currentPage=1"
 
