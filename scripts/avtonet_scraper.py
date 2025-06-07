@@ -3,6 +3,7 @@ import random
 import warnings
 import os
 import re
+
 from typing import Dict, Callable, Any, Optional
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
@@ -126,41 +127,48 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
                 print(f"Error processing field {field}: {e}")
                 vehicle_data[field] = None
 
-        print(vehicle_data)
-        vehicle_data_list.append(vehicle_data)
+        if any(vehicle_data.values()):  # Only add if there's some valid data
+            vehicle_data_list.append(vehicle_data)
+
+        # print(vehicle_data)
 
     if vehicle_data_list:
-        await collection.insert_many(vehicle_data_list, ordered=False)
-        print(f"Inserted {len(vehicle_data_list)} vehicles from page {page.url.split('=')[-1]}")
+        try:
+            await collection.insert_many(vehicle_data_list, ordered=False)
+            print(f"Inserted {len(vehicle_data_list)} vehicles from page {page.url.split('=')[-1]}")
+        except Exception as e:
+            print(f"Error inserting data to MongoDB: {e}")
+
+    return vehicle_data_list
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-async def scrape_single_page(page_num: int, context, start_url: str, fields: Dict[str, Dict[str, Any]], collection):
+async def scrape_single_page(page_num: int, context, start_url: str, fields: Dict[str, Dict[str, Any]], collection, scrape_data_func):
     print(f"Scraping page {page_num}...")
     page = await context.new_page()
     await stealth_async(page)
 
-    page_url = start_url.replace("stran=1", f"stran={page_num}")
+    page_url = start_url.replace("stran=1", f"stran={page_num}").replace("currentPage=1", f"currentPage={page_num}")
     try:
         response = await page.goto(page_url, timeout=30000)
         print(f"Page {page_num} status: {response.status}")
         await page.wait_for_load_state("domcontentloaded", timeout=30000)
         await asyncio.sleep(random.uniform(1.0, 2.5))
-        await scrape_data(page, fields, collection)
+        await scrape_data_func(page, fields, collection)
     except Exception as e:
         print(f"Error on page {page_num}: {e}")
         await page.screenshot(path=f"screenshot_error_page_{page_num}.png")
     finally:
         await page.close()
 
-def create_page_batches(start_page: int, end_page: int, batch_size: int):
+def create_batches(start_page: int, end_page: int, batch_size: int):
     pages = list(range(start_page, end_page + 1))
     return [pages[i:i + batch_size] for i in range(0, len(pages), batch_size)]
 
-async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, start_page: int = 1, end_page: int = 5, batch_size: int = 3):
+async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, start_page, end_page, batch_size, create_batches_func, scrape_single_page_func, scrape_data_func):
     await collection.delete_many({})
 
     async with async_playwright() as p:
-        page_batches = create_page_batches(start_page, end_page, batch_size)
+        page_batches = create_batches_func(start_page, end_page, batch_size)
         print(f"Processing {len(page_batches)} batches of up to {batch_size} pages each.")
 
         for batch in page_batches:
@@ -171,7 +179,7 @@ async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, 
                 viewport={"width": 1280, "height": 720},
                 locale="en-US"
             )
-            tasks = [scrape_single_page(page_num, context, start_url, fields, collection) for page_num in batch]
+            tasks = [scrape_single_page_func(page_num, context, start_url, fields, collection, scrape_data_func) for page_num in batch]
             await asyncio.gather(*tasks, return_exceptions=True)
             await context.close()
             await browser.close()
@@ -276,4 +284,14 @@ if __name__ == "__main__":
     moto_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=&ccmMin=0&ccmMax=99999&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=999&motortakt=0&motorvalji=0&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&air calendar=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1060000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=61000&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
     truck_url = "https://www.avto.net/Ads/results.asp?znamka=&model=&modelID=&tip=&znamka2=&model2=&tip2=&znamka3=&model3=&tip3=&cenaMin=0&cenaMax=999999&letnikMin=0&letnikMax=2090&bencin=0&starost2=999&oblika=41&ccmMin=&ccmMax=&mocMin=&mocMax=&kmMin=0&kmMax=9999999&kwMin=0&kwMax=9999&motortakt=&motorvalji=&lokacija=0&sirina=&dolzina=&dolzinaMIN=&dolzinaMAX=&nosilnostMIN=&nosilnostMAX=&sedezevMIN=&sedezevMAX=&lezisc=&presek=&premer=&col=&vijakov=&EToznaka=&vozilo=&airbag=&barva=&barvaint=&doseg=&BkType=&BkOkvir=&BkOkvirType=&Bk4=&EQ1=1000000000&EQ2=1000000000&EQ3=1000000000&EQ4=100000000&EQ5=1000000000&EQ6=1000000000&EQ7=1110100120&EQ8=101000000&EQ9=100000002&EQ10=100000000&KAT=1040000000&PIA=&PIAzero=&PIAOut=&PSLO=&akcija=&paketgarancije=&broker=&prikazkategorije=&kategorija=0&ONLvid=&ONLnak=&zaloga=10&arhiv=&presort=&tipsort=&stran=1"
 
-    asyncio.run(scrape(car_url, CAR_FIELDS, car_collection, start_page=1, end_page=9, batch_size=3))
+    asyncio.run(scrape(
+        start_url=car_url,
+        fields=CAR_FIELDS,
+        collection=car_collection,
+        start_page=1,
+        end_page=25,
+        batch_size=5,
+        create_batches_func=create_batches,
+        scrape_single_page_func=scrape_single_page,
+        scrape_data_func=scrape_data
+    ))
