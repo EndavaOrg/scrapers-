@@ -152,7 +152,7 @@ async def cleanup_outdated_vehicles(collection):
             print(f"Checking {len(links)} vehicle links for validity")
             invalid_links = []
 
-            batch_size = 30
+            batch_size = 50
             for i in range(0, len(links), batch_size):
                 batch_links = links[i:i + batch_size]
                 print(f"Processing batch of {len(batch_links)} links (links {i+1} to {i+len(batch_links)})")
@@ -189,17 +189,9 @@ async def check_vehicle_page_validity(context, link: str) -> bool:
     await stealth_async(page)
     try:
         response = await page.goto(link, timeout=20000)
-        if response.status != 200:
-            print(f"Invalid status code {response.status} for link: {link}")
-            return False
-        content = await page.content()
-        error_message = "Oglas je že odstranjen iz ponudbe.".lower()
-        if error_message in content.lower():
-            print(f"Error message '{error_message}' found for link: {link}")
-            return False
-        vehicle_title_element = await page.query_selector("div.col-12.mt-3.pt-1")
-        if not vehicle_title_element:
-            print(f"No vehicle title found for link: {link}")
+        current_url = page.url
+        if current_url == "https://www.avto.net/unvalid.asp":
+            print(f"Redirected to unvalid.asp for link: {link}")
             return False
         return True
     except Exception as e:
