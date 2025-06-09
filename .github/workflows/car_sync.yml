@@ -28,3 +28,4 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
         run: |
           python scripts/doberavto_car_sync.py
+          python scripts/autolina_scraper.py
