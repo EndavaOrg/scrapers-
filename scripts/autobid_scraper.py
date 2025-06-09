@@ -10,17 +10,15 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from cryptography.utils import CryptographyDeprecationWarning
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
-from avtonet_scraper import scrape, scrape_single_page, create_batches, check_special_make, check_special_model
+from avtonet_scraper import scrape, scrape_single_page, create_batches, check_special_make, check_special_model, cleanup_outdated_vehicles, check_vehicle_page_validity
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
 load_dotenv()
 
-# Environment variables
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
 COLLECTIONS = os.getenv("COLLECTIONS", "").split(",")
 
-# MongoDB setup
 client = AsyncIOMotorClient(MONGO_URI)
 db = client[DB_NAME]
 car_collection = db[COLLECTIONS[0]]
@@ -54,7 +52,7 @@ CAR_FIELDS = {
         "source": "misc",
         "processor": lambda m: next((item.strip() for item in m.split(", ") if item.strip().lower() in FUEL_TYPES), None) if m else None
     },
-    "gearbox_type": {
+    "gearbox": {
         "source": "misc",
         "processor": lambda m: next((item.strip() for item in m.split(", ") if item.strip().lower() in GEARBOX_TYPES), None) if m else None
     },
@@ -135,15 +133,17 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection):
                 print(f"Error processing field {field}: {e}")
                 vehicle_data[field] = None
 
-        if any(vehicle_data.values()):  # Only add if there's some valid data
-            vehicle_data_list.append(vehicle_data)
-
-        print(vehicle_data)
+        if vehicle_data.get("link"):
+            existing_vehicle = await collection.find_one({"link": vehicle_data["link"]})
+            if existing_vehicle:
+                continue
+            if any(vehicle_data.values()):
+                vehicle_data_list.append(vehicle_data)
 
     if vehicle_data_list:
         try:
             await collection.insert_many(vehicle_data_list, ordered=False)
-            print(f"Inserted {len(vehicle_data_list)} vehicles from page {page.url.split('=')[-1]}")
+            print(f"Inserted {len(vehicle_data_list)} new vehicles from page {page.url.split('=')[-1]}")
         except Exception as e:
             print(f"Error inserting data to MongoDB: {e}")
 
@@ -176,9 +176,7 @@ if __name__ == "__main__":
         fields=CAR_FIELDS,
         collection=car_collection,
         start_page=1,
-        end_page=9,
-        batch_size=3,
-        create_batches_func=create_batches,
-        scrape_single_page_func=scrape_single_page,
+        end_page=25,
+        batch_size=5,
         scrape_data_func=scrape_data
     ))
