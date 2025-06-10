@@ -1,0 +1,32 @@
+Endava Primerjalnik Cen
+
+Endava Primerjalnik Cen je aplikacija, ki služi primerjanju cen avtomobilov, motorciklov in drugih motornih vozil, s pomočjo filtrov in
+umetne intelegence prikazuje podatke vozil iz drugih spletnih mest.
+
+Leto izdelave: 2025
+
+Leo Masevski
+Kristina Maneva
+Viktor Mitanoski
+
+Domača stran: frontend-14i1.onrender.com
+Vir podatkov: 
+-https://avto.net/
+-https://www.doberavto.si/
+-https://autobid.de/
+-https://www.autolina.ch/
+
+Koda: 
+-https://github.com/EndavaOrg/frontend
+-https://github.com/EndavaOrg/backend
+-https://github.com/EndavaOrg/scrapers-
+
+Kategorizacija: spletna aplikacija
+
+Oznake: OdprtiPodatki, ReactTS, MongoDB, Mongoose, NodeJS, Python, Scrum, AgilenRazvoj, GitHub, UporabaAI, Express, REST, Bootstrap, CSS, HTML.
+
+Projekt je napreden spletni primerjalnik cen za različna motorna vozila — avtomobile, motorje in tovornjake. Uporabnikom omogoča hitro in enostavno iskanje ter primerjavo vozil glede na različne kriterije, kot so cena, moč motorja, prevoženi kilometri, leto izdelave, menjalnik in drugo. Sistem vsebuje napredne iskalne filtre, ki pomagajo uporabnikom najti vozila, ki najbolje ustrezajo njihovim željam in potrebam.
+
+Uporabniki se lahko registrirajo in prijavijo, s čimer pridobijo možnost shranjevanja svojih priljubljenih vozil in nastavitev preferenc. Dodatno lahko personalizirajo iskalne rezultate glede na svoje pretekle izbire.
+
+Posebnost projekta je integracija umetne inteligence, ki omogoča iskanje vozil tudi na podlagi naravnega jezika. Uporabnik lahko na primer vpiše: “Iščem varčen in družinski avto za manj kot 15.000 €”, sistem pa bo samodejno prilagodil iskanje ustreznim filtrom.

@@ -34,7 +34,7 @@ def extract_year(constructionYear):
         return None
 
 client = MongoClient(MONGO_URI)
-db = client["primerjalnik_cen_db"]  # adjust if needed
+db = client["endava"]  
 collection = db["cars"]
 
 response = requests.get(url)
