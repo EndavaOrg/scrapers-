@@ -5,15 +5,12 @@ import logging
 import warnings
 
 from motor.motor_asyncio import AsyncIOMotorClient
-from dotenv import load_dotenv
 from cryptography.utils import CryptographyDeprecationWarning
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
-
-load_dotenv()
 
 # Configure logging for GitHub Actions
 logging.basicConfig(
@@ -23,15 +20,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = os.getenv("DB_NAME")
-COLLECTIONS = os.getenv("COLLECTIONS", "").split(",")
+mongo_uri = os.environ.get("MONGO_URI")
+if not mongo_uri:
+    raise RuntimeError("MONGO_URI not set in environment variables.")
 
-client = AsyncIOMotorClient(MONGO_URI)
-db = client[DB_NAME]
-car_collection = db[COLLECTIONS[0]]
-moto_collection = db[COLLECTIONS[1]]
-truck_collection = db[COLLECTIONS[2]]
+client = AsyncIOMotorClient(mongo_uri)
+db = client["primerjalnik_cen_db"]
+car_collection = db["cars"]
+moto_collection = db["motorcycles"]
+truck_collection = db["trucks"]
 
 async def cleanup_outdated_vehicles(collection, site_name: str, semaphore: asyncio.Semaphore):
     async with async_playwright() as p:
