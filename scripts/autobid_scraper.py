@@ -18,7 +18,7 @@ if not mongo_uri:
     raise RuntimeError("MONGO_URI not set in environment variables.")
 
 client = AsyncIOMotorClient(mongo_uri)
-db = client["primerjalnik_cen_db"]
+db = client["endava"]
 car_collection = db["cars"]
 moto_collection = db["motorcycles"]
 truck_collection = db["trucks"]
