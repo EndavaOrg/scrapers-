@@ -2,9 +2,6 @@ import requests
 import os
 from datetime import datetime
 from pymongo import MongoClient
-from dotenv import load_dotenv
-load_dotenv()
-
 
 MONGO_URI = os.getenv("MONGO_URI")
 
