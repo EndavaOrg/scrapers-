@@ -23,9 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run sync script
+      - name: Run the scripts
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
         run: |
           python scripts/doberavto_car_sync.py
           python scripts/autolina_scraper.py
+          python scripts/autobid_scraper.py
+          python scripts/avtonet_scraper.py
+          python scripts/data_cleanup.py

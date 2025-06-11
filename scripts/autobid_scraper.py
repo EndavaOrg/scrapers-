@@ -8,22 +8,20 @@ from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 from motor.motor_asyncio import AsyncIOMotorClient
 from cryptography.utils import CryptographyDeprecationWarning
-from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
-from avtonet_scraper import scrape, scrape_single_page, create_batches, check_special_make, check_special_model, cleanup_outdated_vehicles, check_vehicle_page_validity
+from avtonet_scraper import scrape, scrape_single_page, create_batches, check_special_make, check_special_model
 
 warnings.filterwarnings("ignore", category=CryptographyDeprecationWarning)
-load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = os.getenv("DB_NAME")
-COLLECTIONS = os.getenv("COLLECTIONS", "").split(",")
+mongo_uri = os.environ.get("MONGO_URI")
+if not mongo_uri:
+    raise RuntimeError("MONGO_URI not set in environment variables.")
 
-client = AsyncIOMotorClient(MONGO_URI)
-db = client[DB_NAME]
-car_collection = db[COLLECTIONS[0]]
-moto_collection = db[COLLECTIONS[1]]
-truck_collection = db[COLLECTIONS[2]]
+client = AsyncIOMotorClient(mongo_uri)
+db = client["primerjalnik_cen_db"]
+car_collection = db["cars"]
+moto_collection = db["motorcycles"]
+truck_collection = db["trucks"]
 
 FUEL_TYPES = {
     "bencin", "dizel", "avtoplin", "zemeljski plin", "hibrid", 
@@ -36,7 +34,7 @@ GEARBOX_TYPES = {
     "avtomatik", "polavtomatik", "ročni menjalnik"
 }
 
-CAR_FIELDS = {
+VEHICLE_FIELDS = {
     "make": {"source": "name_parts", "processor": lambda np: check_special_make(np)},
     "model": {"source": "name_parts", "processor": lambda np, make: check_special_model(make, np)},
     "price_eur": {"source": "price", "processor": lambda price: price},
@@ -167,16 +165,38 @@ async def extract_price(price_element):
             print(f"Error extracting price: {e}")
     return None
 
-# ---------- Main ----------
-if __name__ == "__main__":
-    car_url = "https://autobid.de/sl/rezultati-iskanja?e367=1&sortingType=auctionStartDate-DESCENDING&currentPage=1"
-
-    asyncio.run(scrape(
+async def scrape_all_categories():
+    await scrape(
         start_url=car_url,
-        fields=CAR_FIELDS,
+        fields=VEHICLE_FIELDS,
         collection=car_collection,
         start_page=1,
         end_page=25,
         batch_size=5,
         scrape_data_func=scrape_data
-    ))
+    )
+    await scrape(
+        start_url=moto_url,
+        fields=VEHICLE_FIELDS,
+        collection=moto_collection,
+        start_page=1,
+        end_page=25,
+        batch_size=5,
+        scrape_data_func=scrape_data
+    )
+    await scrape(
+        start_url=truck_url,
+        fields=VEHICLE_FIELDS,
+        collection=truck_collection,
+        start_page=1,
+        end_page=25,
+        batch_size=5,
+        scrape_data_func=scrape_data
+    )
+
+if __name__ == "__main__":
+    car_url = "https://autobid.de/sl/rezultati-iskanja?e367=1&sortingType=auctionStartDate-DESCENDING&currentPage=1"
+    moto_url = "https://autobid.de/sl/rezultati-iskanja?e367=2&sortingType=auctionStartDate-DESCENDING&currentPage=1"
+    truck_url = "https://autobid.de/sl/rezultati-iskanja?e367=3&sortingType=auctionStartDate-DESCENDING&currentPage=1"
+
+    asyncio.run(scrape_all_categories())
