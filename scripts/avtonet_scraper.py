@@ -18,7 +18,7 @@ if not mongo_uri:
     raise RuntimeError("MONGO_URI not set in environment variables.")
 
 client = AsyncIOMotorClient(mongo_uri)
-db = client["primerjalnik_cen_db"]
+db = client["endava"]
 car_collection = db["cars"]
 moto_collection = db["motorcycles"]
 truck_collection = db["trucks"]
@@ -29,7 +29,7 @@ CAR_FIELDS = {
     "model": {"source": "name_parts", "processor": lambda np, make: check_special_model(make, np)},
     "price_eur": {"source": "price", "processor": lambda price_tuple: price_tuple},
     "first_registration": {"source": "specs", "processor": lambda s: int(s.get("1.registracija").strip()) if s.get("1.registracija") else None},
-    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").strip()) if s.get("Prevoženih") else None},
+    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").replace(".", "").strip()) if s.get("Prevoženih") else None},
     "fuel_type": {"source": "specs", "processor": lambda s: s.get("Gorivo")},
     "gearbox": {"source": "specs", "processor": lambda s: s.get("Menjalnik")},
     "engine_ccm": {"source": "engine", "processor": lambda e: extract_engine_info(e, is_motorcycle=False)[0]},
@@ -46,7 +46,7 @@ MOTORCYCLE_FIELDS = {
     "model": {"source": "name_parts", "processor": lambda np, make: check_special_model(make, np)},
     "price_eur": {"source": "price", "processor": lambda price_tuple: price_tuple},
     "first_registration": {"source": "specs", "processor": lambda s: int(s.get("1.registracija").strip()) if s.get("1.registracija") else None},
-    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").strip()) if s.get("Prevoženih") else None},
+    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").replace(".", "").strip()) if s.get("Prevoženih") else None},
     "engine_kw": {"source": "engine", "processor": lambda e: extract_engine_info(e, is_motorcycle=True)[1]},
     "engine_hp": {"source": "engine", "processor": lambda e: extract_engine_info(e, is_motorcycle=True)[2]},
     "state": {"source": "specs", "processor": lambda s: s.get("Starost") if s.get("Starost") else "RABLJENO"},
@@ -59,7 +59,7 @@ TRUCK_FIELDS = {
     "model": {"source": "name_parts", "processor": lambda np, make: check_special_model(make, np)},
     "price_eur": {"source": "price", "processor": lambda price_tuple: price_tuple},
     "Year": {"source": "specs", "processor": lambda s: int(s.get("Letnik").strip()) if s.get("Letnik") else None},
-    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").strip()) if s.get("Prevoženih") else None},
+    "mileage_km": {"source": "specs", "processor": lambda s: int(s.get("Prevoženih").replace(" km", "").replace(".", "").strip()) if s.get("Prevoženih") else None},
     "fuel_type": {"source": "specs", "processor": lambda s: s.get("Gorivo")},
     "gearbox": {"source": "specs", "processor": lambda s: s.get("Menjalnik")},
     "state": {"source": "specs", "processor": lambda s: s.get("Starost") if s.get("Starost") else "RABLJENO"},
@@ -125,7 +125,7 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection) -> li
 
         # Skip if no valid link or if vehicle already exists in the database
         if vehicle_data.get("link"):
-            existing_vehicle = await collection.find_one({"link": vehicle_data["link"]})
+            existing_vehicle = await find_one_document(collection, {"link": vehicle_data["link"]})
             if existing_vehicle:
                 continue  # Skip if vehicle already exists
             if any(vehicle_data.values()):  # Only add if there's some valid data
@@ -133,7 +133,7 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection) -> li
 
     if vehicle_data_list:
         try:
-            await collection.insert_many(vehicle_data_list, ordered=False)
+            await insert_many_documents(collection, vehicle_data_list)
             print(f"Inserted {len(vehicle_data_list)} new vehicles from page {page.url.split('=')[-1]}")
         except Exception as e:
             print(f"Error inserting data to MongoDB: {e}")
@@ -186,6 +186,22 @@ async def scrape(start_url: str, fields: Dict[str, Dict[str, Any]], collection, 
             print(f"Closed browser for batch: pages {batch[0]} to {batch[-1]}")
 
 # ==================== HELPER FUNCTIONS ====================
+async def find_one_document(collection, query):
+    if hasattr(collection, 'find_one') and not callable(getattr(collection.find_one, '__call__', None)):
+        # Async collection (e.g., motor)
+        return await collection.find_one(query)
+    else:
+        # Sync collection (e.g., mongomock)
+        return collection.find_one(query)
+
+async def insert_many_documents(collection, documents):
+    if hasattr(collection, 'insert_many') and not callable(getattr(collection.insert_many, '__call__', None)):
+        # Async collection (e.g., motor)
+        await collection.insert_many(documents, ordered=False)
+    else:
+        # Sync collection (e.g., mongomock)
+        collection.insert_many(documents, ordered=False)
+
 async def query_fallback(page, selectors: list[str]):
     for s in selectors:
         element = await page.query_selector(s)

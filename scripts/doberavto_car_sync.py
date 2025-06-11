@@ -35,7 +35,7 @@ def extract_year(date_str):
 
 # Connect to MongoDB
 client = MongoClient(MONGO_URI)
-db = client["primerjalnik_cen_db"]
+db = client["endava"]
 collection = db["cars"]
 
 # Fetch fresh data
