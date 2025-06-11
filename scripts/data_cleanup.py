@@ -109,6 +109,9 @@ async def cleanup_all_collections(site_name: str):
     await asyncio.gather(*tasks, return_exceptions=True)
     logger.info(f"Completed cleanup for all collections with site: {site_name}")
 
+async def cleanup_all_sites():
+    await cleanup_all_collections("avto.net")
+    await cleanup_all_collections("autobid.de")
+
 if __name__ == "__main__":
-    asyncio.run(cleanup_all_collections("avto.net"))
-    asyncio.run(cleanup_all_collections("autobid.de"))
+    asyncio.run(cleanup_all_sites())
