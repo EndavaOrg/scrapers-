@@ -35,3 +35,4 @@ jobs:
           python scripts/doberavto_car_sync.py
           python scripts/autolina_scraper.py          
           python scripts/data_cleanup.py
+          python scripts/remove_duplicate_data.py
