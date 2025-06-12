@@ -3,6 +3,7 @@ import random
 import warnings
 import os
 import re
+import traceback
 
 from typing import Dict, Callable, Any, Optional
 from playwright.async_api import async_playwright
@@ -141,6 +142,8 @@ async def scrape_data(page, fields: Dict[str, Dict[str, Any]], collection) -> li
     return vehicle_data_list
 
 # ==================== REUSABLE FUNCTIONS ====================
+import traceback
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def scrape_single_page(page_num: int, context, start_url: str, fields: Dict[str, Dict[str, Any]], collection, scrape_data_func):
     print(f"Scraping page {page_num}...")
@@ -156,7 +159,8 @@ async def scrape_single_page(page_num: int, context, start_url: str, fields: Dic
         vehicle_data = await scrape_data_func(page, fields, collection)
         return vehicle_data
     except Exception as e:
-        print(f"Error on page {page_num}: {e}")
+        print(f"Debug: Exception in scrape_single_page (page {page_num}): {type(e).__name__}: {str(e)}")
+        print(f"Debug: Stack trace: {''.join(traceback.format_tb(e.__traceback__))}")
         await page.screenshot(path=f"screenshot_error_page_{page_num}.png")
         return []
     finally:
